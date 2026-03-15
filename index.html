@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WRC Studio Master: Clean & Scroll Fix</title>
+    <title>WRC Studio Master: Auto-Save Edition</title>
     <style>
         :root {
             --wrc-orange: #FF4D00;
@@ -79,12 +79,7 @@
         .wrc-viewport.fade-out-bg .wrc-outer-frame { opacity: 0; transition: opacity 0.5s ease; }
 
         .header-fixed-area { flex-shrink: 0; padding: 40px 50px 0 50px; }
-        
-        /* 修正：mask-imageを削除し、内容がはっきり見えるように */
-        .scrollable-content-area { 
-            flex-grow: 1; overflow: hidden; padding: 0 50px 40px 50px; 
-            position: relative;
-        }
+        .scrollable-content-area { flex-grow: 1; overflow: hidden; padding: 0 50px 40px 50px; position: relative; }
         .schedule-container { display: flex; flex-direction: column; gap: 8px; transition: transform 0.8s var(--wrc-bezier); }
 
         .row { position: relative; height: 50px; overflow: hidden; }
@@ -114,7 +109,10 @@
 <body class="mode-hd">
 
     <div id="editor-panel">
-        <div style="padding:20px; border-bottom:1px solid #333;"><h2 style="margin:0; color:var(--wrc-orange); font-size:1.1rem;">WRC STUDIO PRO</h2></div>
+        <div style="padding:20px; border-bottom:1px solid #333; display:flex; justify-content:space-between; align-items:center;">
+            <h2 style="margin:0; color:var(--wrc-orange); font-size:1.1rem;">WRC STUDIO PRO</h2>
+            <button onclick="clearSavedData()" style="font-size:9px; background:#444; color:#ccc; border:none; padding:4px 8px; border-radius:3px; cursor:pointer;">RESET ALL</button>
+        </div>
         <div class="editor-content-scroll">
             <div class="mode-toggle">
                 <button id="mode-dev" onclick="setMode('device')">DEVICE</button>
@@ -142,7 +140,7 @@
             </div>
             <div class="editor-section">
                 <label style="font-size: 10px; color: #aaa; font-weight: bold;">RALLY TITLE</label>
-                <input type="text" id="in-title" value="WRC RALLY SWEDEN" oninput="updatePreview()">
+                <input type="text" id="in-title" value="WRC RALLY SWEDEN" oninput="updatePreview(); saveData();">
             </div>
             <div style="display:flex; gap:10px; margin-bottom:15px;">
                 <button style="background:var(--wrc-orange); flex:1; border:none; color:white; padding:8px; border-radius:4px; font-size:10px; font-weight:bold; cursor:pointer;" onclick="addRow('stage')">+ STAGE</button>
@@ -152,7 +150,7 @@
         </div>
         <div style="padding:20px; background:#111; border-top:1px solid #333;">
             <label style="color:#ff8888; font-size:10px; font-weight:bold;">AUTO-SCROLL INTERVAL</label>
-            <input type="number" id="scroll-interval" value="5">
+            <input type="number" id="scroll-interval" value="5" oninput="saveData()">
             <button class="rec-btn" onclick="startAutoRecording()">🔴 AUTO SEQUENCE REC</button>
         </div>
     </div>
@@ -174,17 +172,12 @@
     <audio id="audio-player"></audio>
 
     <script>
+        // デフォルトデータ
         let data = [
             { type: 'day', text: 'THURSDAY 15 FEB' },
             { type: 'stage', day: "19:01", time: "Umeå Sprint 1" },
             { type: 'day', text: 'FRIDAY 16 FEB' },
-            { type: 'stage', day: "08:58", time: "Brattby 1" },
-            { type: 'stage', day: "10:00", time: "Sarsjöliden 1" },
-            { type: 'stage', day: "14:35", time: "Floda 1" },
-            { type: 'day', text: 'SATURDAY 17 FEB' },
-            { type: 'stage', day: "09:00", time: "Vännäs 1" },
-            { type: 'stage', day: "11:30", time: "Sarsjöliden 2" },
-            { type: 'stage', day: "13:00", time: "Bygdsiljum 1" }
+            { type: 'stage', day: "08:58", time: "Brattby 1" }
         ];
 
         const audio = document.getElementById('audio-player');
@@ -195,15 +188,70 @@
         let isVisible = false;
         let fadeTimer = null;
 
-        function updateUIScale(v) { document.documentElement.style.setProperty('--ui-scale', v); document.getElementById('scale-val').innerText = v; }
-        function updateOpacity(v) { document.documentElement.style.setProperty('--bg-opacity', v); document.getElementById('opacity-val').innerText = v; }
-        function updateSpeed(v) { document.documentElement.style.setProperty('--wipe-speed', `${v}s`); document.getElementById('speed-val').innerText = v; }
+        // --- 保存・読み込み機能 ---
+        function saveData() {
+            const settings = {
+                data: data,
+                title: document.getElementById('in-title').value,
+                scale: document.getElementById('scale-slider').value,
+                opacity: document.getElementById('opacity-slider').value,
+                speed: document.getElementById('speed-slider').value,
+                scrollInterval: document.getElementById('scroll-interval').value,
+                mode: document.body.classList.contains('mode-hd') ? 'hd' : 'device'
+            };
+            localStorage.setItem('wrc_studio_save', JSON.stringify(settings));
+        }
+
+        function loadData() {
+            const saved = localStorage.getItem('wrc_studio_save');
+            if (saved) {
+                const s = JSON.parse(saved);
+                data = s.data;
+                document.getElementById('in-title').value = s.title;
+                document.getElementById('scale-slider').value = s.scale;
+                document.getElementById('opacity-slider').value = s.opacity;
+                document.getElementById('speed-slider').value = s.speed;
+                document.getElementById('scroll-interval').value = s.scrollInterval;
+                
+                updateUIScale(s.scale);
+                updateOpacity(s.opacity);
+                updateSpeed(s.speed);
+                setMode(s.mode);
+            }
+        }
+
+        function clearSavedData() {
+            if(confirm("すべての設定をリセットしますか？")) {
+                localStorage.removeItem('wrc_studio_save');
+                location.reload();
+            }
+        }
+
+        // --- コアロジック ---
+        function updateUIScale(v) { 
+            document.documentElement.style.setProperty('--ui-scale', v); 
+            document.getElementById('scale-val').innerText = v;
+            document.getElementById('scale-slider').value = v;
+            saveData();
+        }
+        function updateOpacity(v) { 
+            document.documentElement.style.setProperty('--bg-opacity', v); 
+            document.getElementById('opacity-val').innerText = v;
+            document.getElementById('opacity-slider').value = v;
+            saveData();
+        }
+        function updateSpeed(v) { 
+            document.documentElement.style.setProperty('--wipe-speed', `${v}s`); 
+            document.getElementById('speed-val').innerText = v;
+            document.getElementById('speed-slider').value = v;
+            saveData();
+        }
 
         function setMode(mode) {
             document.body.classList.toggle('mode-hd', mode === 'hd');
             document.getElementById('mode-dev').classList.toggle('active', mode === 'device');
             document.getElementById('mode-hd').classList.toggle('active', mode === 'hd');
-            resizeCanvas(); updatePreview();
+            resizeCanvas(); updatePreview(); saveData();
         }
 
         function resizeCanvas() {
@@ -280,26 +328,20 @@
             
             const interval = (parseInt(document.getElementById('scroll-interval').value) || 5) * 1000;
             const scrollArea = document.querySelector('.scrollable-content-area');
-            
-            // スクロール可能な総量を正確に計算
             const totalContentHeight = uiRoot.scrollHeight;
             const visibleAreaHeight = scrollArea.clientHeight;
             const maxScroll = Math.max(0, totalContentHeight - visibleAreaHeight);
 
             await new Promise(r => setTimeout(r, 2000));
-            
             if (maxScroll > 0) {
                 let currentPos = 0;
                 while (currentPos < maxScroll) {
                     await new Promise(r => setTimeout(r, interval));
-                    // 1ページ分（エリアの高さより少し少なめ）ずつ進める
                     currentPos += (visibleAreaHeight - 50); 
                     uiRoot.style.transform = `translateY(-${Math.min(currentPos, maxScroll)}px)`;
                 }
                 await new Promise(r => setTimeout(r, interval));
-            } else { 
-                await new Promise(r => setTimeout(r, interval)); 
-            }
+            } else { await new Promise(r => setTimeout(r, interval)); }
             
             toggleUI();
             await new Promise(r => setTimeout(r, 3500));
@@ -326,15 +368,15 @@
             const root = document.getElementById('rows-editor'); root.innerHTML = '';
             data.forEach((item, i) => {
                 const div = document.createElement('div'); div.className = 'editor-section';
-                div.innerHTML = (item.type === 'day' ? `<input type="text" value="${item.text}" oninput="data[${i}].text=this.value;updatePreview()">` : 
-                    `<div style="display:flex; gap:5px;"><input style="width:30%" type="text" value="${item.day}" oninput="data[${i}].day=this.value;updatePreview()"><input type="text" value="${item.time}" oninput="data[${i}].time=this.value;updatePreview()"></div>`) + 
-                    `<div style="display:flex; gap:5px; margin-top:8px;"><button style="flex:1; border:none; background:#444; color:white; padding:4px; cursor:pointer;" onclick="move(${i},-1)">▲</button><button style="flex:1; border:none; background:#444; color:white; padding:4px; cursor:pointer;" onclick="move(${i},1)">▼</button><button style="flex:1; border:none; background:#822; color:white; padding:4px; cursor:pointer;" onclick="data.splice(${i},1);buildEditor();updatePreview()">DEL</button></div>`;
+                div.innerHTML = (item.type === 'day' ? `<input type="text" value="${item.text}" oninput="data[${i}].text=this.value;updatePreview();saveData();">` : 
+                    `<div style="display:flex; gap:5px;"><input style="width:30%" type="text" value="${item.day}" oninput="data[${i}].day=this.value;updatePreview();saveData();"><input type="text" value="${item.time}" oninput="data[${i}].time=this.value;updatePreview();saveData();"></div>`) + 
+                    `<div style="display:flex; gap:5px; margin-top:8px;"><button style="flex:1; border:none; background:#444; color:white; padding:4px; cursor:pointer;" onclick="move(${i},-1)">▲</button><button style="flex:1; border:none; background:#444; color:white; padding:4px; cursor:pointer;" onclick="move(${i},1)">▼</button><button style="flex:1; border:none; background:#822; color:white; padding:4px; cursor:pointer;" onclick="data.splice(${i},1);buildEditor();updatePreview();saveData();">DEL</button></div>`;
                 root.appendChild(div);
             });
         }
 
-        function move(i, d) { let t = i + d; if(t >= 0 && t < data.length) { [data[i], data[t]] = [data[t], data[i]]; buildEditor(); updatePreview(); } }
-        function addRow(t) { data.push(t === 'day' ? {type:'day', text:'NEW DATE'} : {type:'stage', day:'00:00', time:'New Stage'}); buildEditor(); updatePreview(); }
+        function move(i, d) { let t = i + d; if(t >= 0 && t < data.length) { [data[i], data[t]] = [data[t], data[i]]; buildEditor(); updatePreview(); saveData(); } }
+        function addRow(t) { data.push(t === 'day' ? {type:'day', text:'NEW DATE'} : {type:'stage', day:'00:00', time:'New Stage'}); buildEditor(); updatePreview(); saveData(); }
 
         document.getElementById('f-up').onchange = e => { 
             if(e.target.files[0]) {
@@ -348,7 +390,11 @@
         document.getElementById('v-up').onchange = e => { if(e.target.files[0]) { video.src = URL.createObjectURL(e.target.files[0]); video.style.display='block'; video.play(); }};
 
         window.onresize = resizeCanvas;
-        setMode('hd'); buildEditor(); updatePreview();
+        
+        // 起動時に読み込み
+        loadData();
+        buildEditor(); 
+        updatePreview();
     </script>
 </body>
 </html>
