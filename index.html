@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WRC Studio Pro: High-Quality Exporter</title>
+    <title>WRC Studio Master: Auto-Save Edition</title>
     <style>
         :root {
             --wrc-orange: #FF4D00;
@@ -22,14 +22,16 @@
             --font-row: 1.3rem;
         }
 
+        .row, .wipe-bar, .content, .wrc-outer-frame, .schedule-container {
+            will-change: transform, clip-path;
+            transform: translateZ(0);
+        }
+
         * { -webkit-font-smoothing: antialiased; box-sizing: border-box; }
         body { 
             margin: 0; background: #000; color: white; display: flex; height: 100vh; width: 100vw; 
             overflow: hidden; font-family: 'Arial Black', sans-serif;
         }
-
-        /* 録画中のマウスカーソル消去 */
-        body.rec-mode .dynamic-canvas { cursor: none; }
 
         /* --- Editor Panel --- */
         #editor-panel {
@@ -38,7 +40,15 @@
         }
         body.rec-mode #editor-panel { transform: translateX(-100%); position: absolute; }
         .editor-content-scroll { flex-grow: 1; overflow-y: auto; padding: 20px; }
-        
+        .mode-toggle { display: flex; background: #000; border-radius: 4px; padding: 4px; margin-bottom: 15px; border: 1px solid #333;}
+        .mode-toggle button { flex: 1; border: none; padding: 10px; color: #888; background: transparent; cursor: pointer; font-size: 10px; font-weight: bold; border-radius: 4px; }
+        .mode-toggle button.active { background: #444; color: #fff; }
+        .asset-group { margin-bottom: 20px; border: 1px solid #333; padding: 12px; border-radius: 8px; background: #222; }
+        .asset-label { display: block; font-size: 9px; color: #00ffff; margin-bottom: 5px; font-weight: bold; }
+        .editor-section { margin-bottom: 12px; background: #2a2a2a; padding: 10px; border-radius: 6px; }
+        input[type="text"], input[type="number"] { width: 100%; background: #000; border: 1px solid #444; color: white; padding: 8px; margin-top: 5px; border-radius: 4px; font-size: 13px; }
+        input[type="range"] { width: 100%; accent-color: var(--wrc-orange); cursor: pointer; }
+
         /* --- Display System --- */
         .main-display-container {
             flex-grow: 1; height: 100vh; display: flex; align-items: center; justify-content: center; 
@@ -50,14 +60,16 @@
             transform: scale(var(--preview-scale)); transform-origin: center center;
             flex-shrink: 0;
         }
+        #bg-video { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; z-index: 1; display: none; }
+        #video-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.3); z-index: 2; }
 
-        /* --- WRC UI (Animation core) --- */
+        /* --- WRC UI --- */
         .wrc-viewport { 
             position: absolute; top: 50%; left: 50%; 
             transform: translate(-50%, -50%) scale(var(--ui-scale));
             transform-origin: center center;
             z-index: 10; width: var(--base-w); height: var(--base-h); 
-            display: none; opacity: 0;
+            display: none; opacity: 0; transition: opacity 0.3s ease;
         }
         .wrc-viewport.visible { opacity: 1; }
         .wrc-outer-frame {
@@ -65,6 +77,7 @@
             display: flex; flex-direction: column;
         }
         .wrc-viewport.fade-out-bg .wrc-outer-frame { opacity: 0; transition: opacity 0.5s ease; }
+
         .header-fixed-area { flex-shrink: 0; padding: 40px 50px 0 50px; }
         .scrollable-content-area { flex-grow: 1; overflow: hidden; padding: 0 50px 40px 50px; position: relative; }
         .schedule-container { display: flex; flex-direction: column; gap: 8px; transition: transform 0.8s var(--wrc-bezier); }
@@ -87,42 +100,65 @@
         @keyframes content-show { 0% { clip-path: inset(0 100% 0 0); } 100% { clip-path: inset(0 0% 0 0); } }
         @keyframes content-hide { 0% { clip-path: inset(0 0% 0 0); } 100% { clip-path: inset(0 0% 0 100%); } }
 
-        /* UI elements */
-        .editor-section { margin-bottom: 12px; background: #2a2a2a; padding: 10px; border-radius: 6px; }
-        input[type="text"], input[type="number"] { width: 100%; background: #000; border: 1px solid #444; color: white; padding: 8px; margin-top: 5px; border-radius: 4px; font-size: 13px; }
-        .rec-btn { background: #d00; width: 100%; border: none; color: white; font-weight: bold; padding: 15px; border-radius: 4px; cursor: pointer; margin-top: 10px; transition: 0.3s; }
-        .rec-btn:hover { background: #ff0000; }
+        .floating-controls { position: fixed; bottom: 30px; right: 40px; z-index: 5000; transition: opacity 0.5s ease; }
+        body.rec-mode .floating-controls { opacity: 0; pointer-events: none; }
         .play-btn { background: var(--wrc-orange); padding: 12px 40px; color: white; border: none; font-weight: bold; border-radius: 4px; cursor: pointer; font-size: 1.1rem; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
-        .floating-controls { position: fixed; bottom: 30px; right: 40px; z-index: 5000; }
-        body.rec-mode .floating-controls { display: none; }
+        .rec-btn { background: #d00; width: 100%; border: none; color: white; font-weight: bold; padding: 15px; border-radius: 4px; cursor: pointer; margin-top: 10px; }
     </style>
 </head>
 <body class="mode-hd">
 
     <div id="editor-panel">
-        <div style="padding:20px; border-bottom:1px solid #333;"><h2 style="margin:0; color:var(--wrc-orange); font-size:1.1rem;">WRC EXPORTER PRO</h2></div>
+        <div style="padding:20px; border-bottom:1px solid #333; display:flex; justify-content:space-between; align-items:center;">
+            <h2 style="margin:0; color:var(--wrc-orange); font-size:1.1rem;">WRC STUDIO PRO</h2>
+            <button onclick="clearSavedData()" style="font-size:9px; background:#444; color:#ccc; border:none; padding:4px 8px; border-radius:3px; cursor:pointer;">RESET ALL</button>
+        </div>
         <div class="editor-content-scroll">
+            <div class="mode-toggle">
+                <button id="mode-dev" onclick="setMode('device')">DEVICE</button>
+                <button id="mode-hd" class="active" onclick="setMode('hd')">FULL HD</button>
+            </div>
+            <div class="asset-group">
+                <label class="asset-label">VIDEO (.mp4)</label>
+                <input type="file" id="v-up" accept="video/mp4" style="font-size:10px; width:100%;">
+                <label class="asset-label" style="margin-top:10px;">AUDIO (.mp3)</label>
+                <input type="file" id="a-up" accept="audio/mp3" style="font-size:10px; width:100%;">
+                <label class="asset-label" style="margin-top:10px;">FONT (.ttf/.otf)</label>
+                <input type="file" id="f-up" accept=".ttf,.otf,.woff" style="font-size:10px; width:100%;">
+            </div>
+            <div class="editor-section">
+                <label style="font-size: 10px; color: #aaa; font-weight: bold;">UI SCALE (<span id="scale-val">1.0</span>x)</label>
+                <input type="range" id="scale-slider" min="0.5" max="1.5" step="0.05" value="1.0" oninput="updateUIScale(this.value)">
+            </div>
+            <div class="editor-section">
+                <label style="font-size: 10px; color: #aaa; font-weight: bold;">UI BACKGROUND OPACITY (<span id="opacity-val">0.98</span>)</label>
+                <input type="range" id="opacity-slider" min="0" max="1" step="0.01" value="0.98" oninput="updateOpacity(this.value)">
+            </div>
+            <div class="editor-section">
+                <label style="font-size: 10px; color: #aaa; font-weight: bold;">ANIMATION SPEED (<span id="speed-val">0.55</span>s)</label>
+                <input type="range" id="speed-slider" min="0.2" max="1.5" step="0.05" value="0.55" oninput="updateSpeed(this.value)">
+            </div>
             <div class="editor-section">
                 <label style="font-size: 10px; color: #aaa; font-weight: bold;">RALLY TITLE</label>
-                <input type="text" id="in-title" value="WRC RALLY SWEDEN" oninput="updatePreview()">
+                <input type="text" id="in-title" value="WRC RALLY SWEDEN" oninput="updatePreview(); saveData();">
+            </div>
+            <div style="display:flex; gap:10px; margin-bottom:15px;">
+                <button style="background:var(--wrc-orange); flex:1; border:none; color:white; padding:8px; border-radius:4px; font-size:10px; font-weight:bold; cursor:pointer;" onclick="addRow('stage')">+ STAGE</button>
+                <button style="background:#0055ff; flex:1; border:none; color:white; padding:8px; border-radius:4px; font-size:10px; font-weight:bold; cursor:pointer;" onclick="addRow('day')">+ DATE</button>
             </div>
             <div id="rows-editor"></div>
-            <button style="background:var(--wrc-orange); width:100%; border:none; color:white; padding:10px; border-radius:4px; font-size:11px; font-weight:bold; cursor:pointer;" onclick="addRow('stage')">+ ADD STAGE</button>
         </div>
         <div style="padding:20px; background:#111; border-top:1px solid #333;">
-            <button class="rec-btn" onclick="masterExport()">🔴 START CLEAN EXPORT (MP4)</button>
-            <p style="font-size: 9px; color: #888; margin-top: 10px; line-height: 1.4;">
-                【重要】<br>
-                1. 許可後、**「このタブ」**を選択してください。<br>
-                2. 録画は自動で全画面になり、終了後にMP4が保存されます。
-            </p>
+            <label style="color:#ff8888; font-size:10px; font-weight:bold;">AUTO-SCROLL INTERVAL</label>
+            <input type="number" id="scroll-interval" value="5" oninput="saveData()">
+            <button class="rec-btn" onclick="startAutoRecording()">🔴 AUTO SEQUENCE REC</button>
         </div>
     </div>
 
     <div class="main-display-container">
-        <div class="dynamic-canvas" id="canvas-area">
-            <video id="bg-video" loop muted playsinline style="position:absolute; width:100%; height:100%; object-fit:cover; display:none;"></video>
-            <div style="position:absolute; width:100%; height:100%; background:rgba(0,0,0,0.3);"></div>
+        <div class="dynamic-canvas" id="canvas">
+            <video id="bg-video" loop muted playsinline></video>
+            <div id="video-overlay"></div>
             <div class="wrc-viewport" id="viewport">
                 <div class="wrc-outer-frame">
                     <div class="header-fixed-area" id="header-root"></div>
@@ -132,133 +168,233 @@
         </div>
     </div>
 
-    <div class="floating-controls"><button class="play-btn" onclick="toggleUI()">PREVIEW</button></div>
+    <div class="floating-controls"><button class="play-btn" onclick="toggleUI()">▶ PLAY / STOP</button></div>
     <audio id="audio-player"></audio>
 
     <script>
-        let data = [{ type: 'day', text: 'FRIDAY 16 FEB' },{ type: 'stage', day: "08:58", time: "Brattby 1" }];
-        const canvas = document.getElementById('canvas-area');
+        // デフォルトデータ
+        let data = [
+            { type: 'day', text: 'THURSDAY 15 FEB' },
+            { type: 'stage', day: "19:01", time: "Umeå Sprint 1" },
+            { type: 'day', text: 'FRIDAY 16 FEB' },
+            { type: 'stage', day: "08:58", time: "Brattby 1" }
+        ];
+
         const audio = document.getElementById('audio-player');
+        const video = document.getElementById('bg-video');
         const viewport = document.getElementById('viewport');
         const uiRoot = document.getElementById('ui-root');
+        const headerRoot = document.getElementById('header-root');
         let isVisible = false;
+        let fadeTimer = null;
 
-        async function masterExport() {
-            try {
-                // 1. 全画面化（ブラウザのUIを隠す）
-                if (canvas.requestFullscreen) { await canvas.requestFullscreen(); }
+        // --- 保存・読み込み機能 ---
+        function saveData() {
+            const settings = {
+                data: data,
+                title: document.getElementById('in-title').value,
+                scale: document.getElementById('scale-slider').value,
+                opacity: document.getElementById('opacity-slider').value,
+                speed: document.getElementById('speed-slider').value,
+                scrollInterval: document.getElementById('scroll-interval').value,
+                mode: document.body.classList.contains('mode-hd') ? 'hd' : 'device'
+            };
+            localStorage.setItem('wrc_studio_save', JSON.stringify(settings));
+        }
 
-                // 2. 録画ストリーム取得
-                const stream = await navigator.mediaDevices.getDisplayMedia({
-                    video: { 
-                        frameRate: 60,
-                        width: 1920,
-                        height: 1080,
-                        displaySurface: "browser" 
-                    },
-                    audio: true
-                });
-
-                document.body.classList.add('rec-mode');
-
-                // 3. メディアレコーダー（高ビットレート設定 15Mbps）
-                const options = { 
-                    mimeType: 'video/webm;codecs=vp9',
-                    videoBitsPerSecond: 15000000 
-                };
-                const recorder = new MediaRecorder(stream, options);
-                const chunks = [];
-                recorder.ondataavailable = e => chunks.push(e.data);
-                recorder.onstop = () => {
-                    const blob = new Blob(chunks, { type: 'video/mp4' });
-                    const a = document.createElement('a');
-                    a.href = URL.createObjectURL(blob);
-                    a.download = `${document.getElementById('in-title').value}_Master.mp4`;
-                    a.click();
-                    if (document.exitFullscreen) document.exitFullscreen();
-                    document.body.classList.remove('rec-mode');
-                };
-
-                recorder.start();
-
-                // 4. アニメーション開始
-                await new Promise(r => setTimeout(r, 1000));
-                toggleUI(); // 入場
-
-                // スクロール処理
-                const scrollArea = document.querySelector('.scrollable-content-area');
-                await new Promise(r => setTimeout(r, 3000));
-                const max = Math.max(0, uiRoot.scrollHeight - scrollArea.clientHeight);
-                if(max > 0) {
-                    uiRoot.style.transform = `translateY(-${max}px)`;
-                    await new Promise(r => setTimeout(r, 5000));
-                } else {
-                    await new Promise(r => setTimeout(r, 3000));
-                }
-
-                toggleUI(); // 退場
-                await new Promise(r => setTimeout(r, 3000));
-
-                recorder.stop();
-                stream.getTracks().forEach(t => t.stop());
-
-            } catch (err) {
-                console.error(err);
-                if (document.exitFullscreen) document.exitFullscreen();
-                document.body.classList.remove('rec-mode');
+        function loadData() {
+            const saved = localStorage.getItem('wrc_studio_save');
+            if (saved) {
+                const s = JSON.parse(saved);
+                data = s.data;
+                document.getElementById('in-title').value = s.title;
+                document.getElementById('scale-slider').value = s.scale;
+                document.getElementById('opacity-slider').value = s.opacity;
+                document.getElementById('speed-slider').value = s.speed;
+                document.getElementById('scroll-interval').value = s.scrollInterval;
+                
+                updateUIScale(s.scale);
+                updateOpacity(s.opacity);
+                updateSpeed(s.speed);
+                setMode(s.mode);
             }
         }
 
-        // --- 以下、既存のUI管理ロジック ---
+        function clearSavedData() {
+            if(confirm("すべての設定をリセットしますか？")) {
+                localStorage.removeItem('wrc_studio_save');
+                location.reload();
+            }
+        }
+
+        // --- コアロジック ---
+        function updateUIScale(v) { 
+            document.documentElement.style.setProperty('--ui-scale', v); 
+            document.getElementById('scale-val').innerText = v;
+            document.getElementById('scale-slider').value = v;
+            saveData();
+        }
+        function updateOpacity(v) { 
+            document.documentElement.style.setProperty('--bg-opacity', v); 
+            document.getElementById('opacity-val').innerText = v;
+            document.getElementById('opacity-slider').value = v;
+            saveData();
+        }
+        function updateSpeed(v) { 
+            document.documentElement.style.setProperty('--wipe-speed', `${v}s`); 
+            document.getElementById('speed-val').innerText = v;
+            document.getElementById('speed-slider').value = v;
+            saveData();
+        }
+
+        function setMode(mode) {
+            document.body.classList.toggle('mode-hd', mode === 'hd');
+            document.getElementById('mode-dev').classList.toggle('active', mode === 'device');
+            document.getElementById('mode-hd').classList.toggle('active', mode === 'hd');
+            resizeCanvas(); updatePreview(); saveData();
+        }
+
+        function resizeCanvas() {
+            const isHD = document.body.classList.contains('mode-hd');
+            const availableW = window.innerWidth - (document.body.classList.contains('rec-mode') ? 0 : 420);
+            const availableH = window.innerHeight;
+            if (isHD) {
+                const scale = Math.min(availableW / 1920, availableH / 1080) * 0.95;
+                document.documentElement.style.setProperty('--preview-scale', scale);
+                document.documentElement.style.setProperty('--canvas-w', '1920px');
+                document.documentElement.style.setProperty('--canvas-h', '1080px');
+            } else {
+                document.documentElement.style.setProperty('--canvas-w', availableW + 'px');
+                document.documentElement.style.setProperty('--canvas-h', availableH + 'px');
+                document.documentElement.style.setProperty('--preview-scale', '1');
+            }
+        }
+
+        function fadeAudio(target, callback) {
+            clearInterval(fadeTimer);
+            const step = (target > audio.volume) ? 0.01 : -0.01;
+            fadeTimer = setInterval(() => {
+                let newVol = audio.volume + step;
+                if (newVol >= 1) newVol = 1; if (newVol <= 0) newVol = 0;
+                audio.volume = newVol;
+                if ((step > 0 && audio.volume >= target) || (step < 0 && audio.volume <= target)) {
+                    audio.volume = target; clearInterval(fadeTimer); if (callback) callback();
+                }
+            }, 20);
+        }
+
         function toggleUI() {
             const rows = document.querySelectorAll('.row');
+            const speed = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--wipe-speed'));
             if(!isVisible) {
-                isVisible = true; viewport.style.display = 'block';
+                isVisible = true;
+                viewport.style.display = 'block';
+                viewport.classList.remove('fade-out-bg');
                 setTimeout(() => {
                     viewport.classList.add('visible');
-                    rows.forEach((r, i) => { r.classList.add('anim-in'); r.style.setProperty('--in-delay', `${i * 0.08}s`); });
+                    rows.forEach((r, i) => {
+                        r.classList.remove('anim-out'); void r.offsetWidth; 
+                        r.classList.add('anim-in');
+                        r.style.setProperty('--in-delay', `${i * (speed * 0.12)}s`);
+                    });
                 }, 10);
-                if(audio.src) { audio.volume = 0; audio.play(); fadeAudio(1); }
+                if(audio.src && !isNaN(audio.duration)) {
+                    audio.currentTime = Math.random() * Math.max(0, audio.duration - 45);
+                    audio.volume = 0; audio.play(); fadeAudio(1);
+                }
             } else {
-                isVisible = false; viewport.classList.add('fade-out-bg');
-                rows.forEach((r, i) => { r.classList.replace('anim-in', 'anim-out'); r.style.setProperty('--out-delay', `${i * 0.05}s`); });
+                isVisible = false;
+                viewport.classList.add('fade-out-bg');
+                rows.forEach((r, i) => {
+                    r.classList.remove('anim-in'); void r.offsetWidth; 
+                    r.classList.add('anim-out');
+                    r.style.setProperty('--out-delay', `${i * (speed * 0.08)}s`); 
+                });
                 fadeAudio(0, () => audio.pause());
                 setTimeout(() => {
-                    viewport.style.display = 'none'; viewport.classList.remove('visible', 'fade-out-bg');
-                    uiRoot.style.transform = 'translateY(0)';
-                    rows.forEach(r => r.classList.remove('anim-out'));
-                }, 2500);
+                    if(!isVisible) {
+                        viewport.classList.remove('visible');
+                        viewport.style.display = 'none';
+                        uiRoot.style.transform = 'translateY(0)';
+                    }
+                }, speed * 2500);
             }
         }
 
-        function fadeAudio(target, cb) {
-            let curr = audio.volume;
-            const interval = setInterval(() => {
-                if (target > curr) { curr = Math.min(target, curr + 0.02); }
-                else { curr = Math.max(target, curr - 0.02); }
-                audio.volume = curr;
-                if (curr === target) { clearInterval(interval); if(cb) cb(); }
-            }, 30);
+        async function startAutoRecording() {
+            document.body.classList.add('rec-mode'); resizeCanvas();
+            await new Promise(r => setTimeout(r, 1000));
+            if(!isVisible) toggleUI();
+            
+            const interval = (parseInt(document.getElementById('scroll-interval').value) || 5) * 1000;
+            const scrollArea = document.querySelector('.scrollable-content-area');
+            const totalContentHeight = uiRoot.scrollHeight;
+            const visibleAreaHeight = scrollArea.clientHeight;
+            const maxScroll = Math.max(0, totalContentHeight - visibleAreaHeight);
+
+            await new Promise(r => setTimeout(r, 2000));
+            if (maxScroll > 0) {
+                let currentPos = 0;
+                while (currentPos < maxScroll) {
+                    await new Promise(r => setTimeout(r, interval));
+                    currentPos += (visibleAreaHeight - 50); 
+                    uiRoot.style.transform = `translateY(-${Math.min(currentPos, maxScroll)}px)`;
+                }
+                await new Promise(r => setTimeout(r, interval));
+            } else { await new Promise(r => setTimeout(r, interval)); }
+            
+            toggleUI();
+            await new Promise(r => setTimeout(r, 3500));
+            document.body.classList.remove('rec-mode'); resizeCanvas();
         }
 
         function updatePreview() {
+            const fMain = getComputedStyle(document.documentElement).getPropertyValue('--font-main');
+            const fRow = getComputedStyle(document.documentElement).getPropertyValue('--font-row');
             const title = document.getElementById('in-title').value;
-            headerRoot.innerHTML = `<div class="row header"><div class="wipe-bar"></div><div class="content"><div style="font-size:var(--font-main);">${title}</div><div style="font-size:0.9rem; letter-spacing:5px;">SCHEDULE</div></div></div>`;
-            uiRoot.innerHTML = data.map(item => `<div class="row ${item.type === 'day' ? 'day-separator' : ''}"><div class="wipe-bar"></div><div class="content">
-                ${item.type === 'day' ? `<span style="font-size:0.9rem; color:#aaa;">${item.text}</span>` : 
-                `<span style="color:var(--wrc-orange); width:110px;">${item.day}</span><span>${item.time}</span>`}</div></div>`).join('');
+            headerRoot.innerHTML = `<div class="row header"><div class="wipe-bar"></div><div class="content"><div style="font-size: ${fMain}; line-height: 1.1;">${title}</div><div style="font-size: 0.9rem; letter-spacing: 5px; margin-top: 8px; opacity: 0.9;">SCHEDULE</div></div></div>`;
+            let html = '';
+            data.forEach((item, i) => {
+                html += `<div class="row ${item.type === 'day' ? 'day-separator' : ''}">
+                    <div class="wipe-bar"></div><div class="content">
+                    ${item.type === 'day' ? `<span style="letter-spacing: 2px; font-size: 0.9rem; color: #bbb;">${item.text}</span>` : 
+                    `<span style="color:var(--wrc-orange); width:110px; font-size:${fRow}; flex-shrink:0;">${item.day}</span>
+                     <span style="font-size:${fRow};">${item.time}</span>`}</div></div>`;
+            });
+            uiRoot.innerHTML = html;
         }
 
-        function addRow(t) { data.push({type:'stage', day:'00:00', time:'New Stage'}); buildEditor(); updatePreview(); }
         function buildEditor() {
-            const root = document.getElementById('rows-editor');
-            root.innerHTML = data.map((item, i) => `<div class="editor-section">
-                <input type="text" value="${item.time}" oninput="data[${i}].time=this.value;updatePreview()">
-                <button onclick="data.splice(${i},1);buildEditor();updatePreview()" style="margin-top:5px; width:100%; font-size:9px; background:#444; color:#fff; border:none; cursor:pointer;">DELETE</button>
-            </div>`).join('');
+            const root = document.getElementById('rows-editor'); root.innerHTML = '';
+            data.forEach((item, i) => {
+                const div = document.createElement('div'); div.className = 'editor-section';
+                div.innerHTML = (item.type === 'day' ? `<input type="text" value="${item.text}" oninput="data[${i}].text=this.value;updatePreview();saveData();">` : 
+                    `<div style="display:flex; gap:5px;"><input style="width:30%" type="text" value="${item.day}" oninput="data[${i}].day=this.value;updatePreview();saveData();"><input type="text" value="${item.time}" oninput="data[${i}].time=this.value;updatePreview();saveData();"></div>`) + 
+                    `<div style="display:flex; gap:5px; margin-top:8px;"><button style="flex:1; border:none; background:#444; color:white; padding:4px; cursor:pointer;" onclick="move(${i},-1)">▲</button><button style="flex:1; border:none; background:#444; color:white; padding:4px; cursor:pointer;" onclick="move(${i},1)">▼</button><button style="flex:1; border:none; background:#822; color:white; padding:4px; cursor:pointer;" onclick="data.splice(${i},1);buildEditor();updatePreview();saveData();">DEL</button></div>`;
+                root.appendChild(div);
+            });
         }
 
-        window.onload = () => { updatePreview(); buildEditor(); };
+        function move(i, d) { let t = i + d; if(t >= 0 && t < data.length) { [data[i], data[t]] = [data[t], data[i]]; buildEditor(); updatePreview(); saveData(); } }
+        function addRow(t) { data.push(t === 'day' ? {type:'day', text:'NEW DATE'} : {type:'stage', day:'00:00', time:'New Stage'}); buildEditor(); updatePreview(); saveData(); }
+
+        document.getElementById('f-up').onchange = e => { 
+            if(e.target.files[0]) {
+                const url = URL.createObjectURL(e.target.files[0]);
+                const s = document.createElement('style');
+                s.textContent = `@font-face { font-family: 'Custom'; src: url('${url}'); } .dynamic-canvas { font-family: 'Custom', sans-serif !important; }`;
+                document.head.appendChild(s);
+            }
+        };
+        document.getElementById('a-up').onchange = e => { if(e.target.files[0]) audio.src = URL.createObjectURL(e.target.files[0]); };
+        document.getElementById('v-up').onchange = e => { if(e.target.files[0]) { video.src = URL.createObjectURL(e.target.files[0]); video.style.display='block'; video.play(); }};
+
+        window.onresize = resizeCanvas;
+        
+        // 起動時に読み込み
+        loadData();
+        buildEditor(); 
+        updatePreview();
     </script>
 </body>
 </html>
